@@ -1,0 +1,10 @@
+-Wall
+-Wextra
+-g
+-DDEBUG
+-DBN_IMPLEMENTATION
+-I./vendor/include
+-I./engine
+-L./vendor/lib
+-lm
+-lSDL3

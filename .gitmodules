@@ -1,0 +1,6 @@
+[submodule "vendor/submodules/SDL"]
+	path = vendor/submodules/SDL
+	url = https://github.com/libsdl-org/SDL
+[submodule "vendor/submodules/bn.h"]
+	path = vendor/submodules/bn.h
+	url = https://github.com/BrunoNotes/bn.h

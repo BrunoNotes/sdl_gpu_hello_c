@@ -1,0 +1,16 @@
+---
+Language: C
+AllowShortFunctionsOnASingleLine: None
+ColumnLimit: 80
+IndentWidth: 4
+ContinuationIndentWidth: 4
+UseTab: Never
+PointerAlignment: Left
+SortIncludes: false
+BreakBeforeBraces: Attach
+AlignAfterOpenBracket: BlockIndent
+BinPackParameters: false
+BreakAfterOpenBracketIf: true
+BreakBeforeCloseBracketIf: true
+BreakBeforeBinaryOperators: NonAssignment
+AllowAllParametersOfDeclarationOnNextLine: true
