@@ -24,6 +24,8 @@ typedef struct {
     Vec4f32 color;
 } OG_Vertex;
 
+bn_slicePrototype(OG_Vertex);
+
 typedef struct {
     String file_path;
     u32 num_samplers, num_storage_buffers, num_storage_textures,
@@ -42,6 +44,7 @@ bn_slicePrototype(SDL_GPUVertexBufferDescription);
 bn_slicePrototype(SDL_GPUVertexAttribute);
 bn_slicePrototype(SDL_GPUColorTargetDescription);
 
-SDL_GPUGraphicsPipeline* og_initPipeline(
-    OG_PipelineInitParams params, OG_Renderer* renderer
-);
+SDL_GPUGraphicsPipeline*
+og_initPipeline(OG_PipelineInitParams params, OG_Renderer* renderer);
+
+bn_slicePrototype(SDL_GPUBufferBinding);

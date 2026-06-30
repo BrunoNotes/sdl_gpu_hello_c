@@ -1,0 +1,1 @@
+vendor/lib/libSDL3.a filter=lfs diff=lfs merge=lfs -text

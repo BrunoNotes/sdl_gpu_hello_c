@@ -42,9 +42,10 @@ extern "C" {
     #define thread_local _Thread_local
 #endif
 
+#include <stdio.h>
+
 #if defined(__GNUC__)
     #ifndef _VA_LIST_DEFINED
-        #include <stdio.h>
         typedef __gnuc_va_list va_list;
         #define _VA_LIST_DEFINED
     #endif
@@ -72,9 +73,9 @@ extern "C" {
 #endif
 // clang-format on
 
-#include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 typedef int8_t i8;
 typedef int16_t i16;
@@ -169,7 +170,7 @@ bn_slicePrototype(Vec4f64);
 
 #define bn_sliceAppend(slice, item)                                            \
     do {                                                                       \
-        bn_assert((slice).count < BN_SLICE_MAX_SIZE);                         \
+        bn_assert((slice).count < BN_SLICE_MAX_SIZE);                          \
         (slice).items[(slice).count] = (item);                                 \
         (slice).count++;                                                       \
     } while (0)
@@ -517,8 +518,8 @@ void bn_destroyContext();
 #if defined(BN_PLATFORM_WINDOWS)
 #include <windows.h>
 #else
-#include <sys/stat.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #endif
 
@@ -571,6 +572,35 @@ void bn_log(BN_LogLevel level, const char* fmt, ...) {
 
 #if defined(BN_PLATFORM_WINDOWS)
 
+static void bn_printLastWindowsError(const char* contextMessage) {
+    DWORD error_message_id = GetLastError();
+    if (error_message_id == 0) {
+        return; // No error occurred
+    }
+
+    LPSTR message_buffer = NULL;
+
+    size_t size = FormatMessageA(
+        FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM |
+            FORMAT_MESSAGE_IGNORE_INSERTS,
+        NULL, error_message_id, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+        (LPSTR)&message_buffer, 0, NULL
+    );
+
+    if (size > 0) {
+        bn_logErrorf(
+            "%s Error %lu: %s", contextMessage, error_message_id, message_buffer
+        );
+    } else {
+        bn_logErrorf(
+            "%s Error %lu (Failed to format message)\n", contextMessage,
+            error_message_id
+        );
+    }
+
+    LocalFree(message_buffer);
+}
+
 u32 bn_platformGetPageSize(void) {
     SYSTEM_INFO sysinfo = {0};
     GetSystemInfo(&sysinfo);
@@ -588,11 +618,23 @@ b32 bn_platformMemCommit(void* ptr, u64 size) {
 }
 
 b32 bn_platformMemDecommit(void* ptr, u64 size) {
-    return VirtualFree(ptr, size, MEM_DECOMMIT);
+    b32 result = VirtualFree(ptr, size, size > 0 ? MEM_DECOMMIT : MEM_RELEASE);
+
+    if (result <= 0) {
+        bn_printLastWindowsError("Error bn_platformMemDecommit");
+    }
+
+    return result;
 }
 
 b32 bn_platformMemRelease(void* ptr, u64 size) {
-    return VirtualFree(ptr, size, MEM_RELEASE);
+    b32 result = VirtualFree(ptr, size, size > 0 ? MEM_DECOMMIT : MEM_RELEASE);
+
+    if (result <= 0) {
+        bn_printLastWindowsError("Error bn_platformMemRelease");
+    }
+
+    return result;
 }
 
 #elif defined(BN_PLATFORM_LINUX)
@@ -1013,9 +1055,9 @@ void bn_initContext(BN_ContextInitParams params) {
     }
 
     if (
-        params.allocator_params.reserve_size == 0
-        && params.allocator_params.commit_size == 0
-        && params.allocator_params.type == 0 //
+        params.allocator_params.reserve_size == 0 &&
+        params.allocator_params.commit_size == 0 &&
+        params.allocator_params.type == 0 //
     ) {
         params.allocator_params.reserve_size = Mib(4);
         params.allocator_params.commit_size = Kib(2);

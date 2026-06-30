@@ -73,21 +73,26 @@ int main(void) {
         renderer
     );
 
-    OG_Vertex vertices[] = {
-        {.position = {{0.0f, 0.5f, 0.0}}, .color = {{1.0, 0.0, 0.0, 1.0}}},
-        {.position = {{-0.5f, -0.5f, 0.0}}, .color = {{1.0, 1.0, 0.0, 1.0}}},
-        {.position = {{0.5f, -0.5f, 0.0}}, .color = {{1.0, 0.0, 1.0, 1.0}}},
-    };
+    BN_sliceOG_Vertex vertices = {0};
+    bn_sliceAppendArray(
+        vertices,
+        ((OG_Vertex[]){
+            {.position = {{0.0f, 0.5f, 0.0}}, .color = {{1.0, 0.0, 0.0, 1.0}}},
+            {.position = {{-0.5f, -0.5f, 0.0}},
+             .color = {{1.0, 1.0, 0.0, 1.0}}},
+            {.position = {{0.5f, -0.5f, 0.0}}, .color = {{1.0, 0.0, 1.0, 1.0}}},
+        })
+    );
 
     SDL_GPUBufferCreateInfo buffer_info = {0};
-    buffer_info.size = sizeof(vertices);
+    buffer_info.size = sizeof(OG_Vertex) * vertices.count;
     buffer_info.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
 
     SDL_GPUBuffer* vertex_buffer =
         SDL_CreateGPUBuffer(renderer->device, &buffer_info);
 
     SDL_GPUTransferBufferCreateInfo transfer_info = {0};
-    transfer_info.size = sizeof(vertices);
+    transfer_info.size = sizeof(OG_Vertex) * vertices.count;
     transfer_info.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
 
     SDL_GPUTransferBuffer* transfer_buffer =
@@ -97,7 +102,7 @@ int main(void) {
         renderer->device, transfer_buffer, false
     );
 
-    SDL_memcpy(data, (void*)vertices, sizeof(vertices));
+    SDL_memcpy(data, (void*)vertices.items, sizeof(OG_Vertex) * vertices.count);
 
     SDL_UnmapGPUTransferBuffer(renderer->device, transfer_buffer);
 
@@ -111,7 +116,7 @@ int main(void) {
 
     SDL_GPUBufferRegion region = {0};
     region.buffer = vertex_buffer;
-    region.size = sizeof(vertices);
+    region.size = sizeof(OG_Vertex) * vertices.count;
     region.offset = 0;
 
     SDL_UploadToGPUBuffer(copy_pass, &location, &region, true);
@@ -168,13 +173,16 @@ int main(void) {
 
         SDL_BindGPUGraphicsPipeline(render_pass, pipeline);
 
-        SDL_GPUBufferBinding buffer_bindings[] = {{
-            .buffer = vertex_buffer,
-            .offset = 0,
-        }};
+        BN_sliceSDL_GPUBufferBinding buffer_bindings = {0};
+        bn_sliceAppendArray(
+            buffer_bindings, ((SDL_GPUBufferBinding[]){{
+                                 .buffer = vertex_buffer,
+                                 .offset = 0,
+                             }})
+        );
 
         SDL_BindGPUVertexBuffers(
-            render_pass, 0, buffer_bindings, bn_arrayLen(buffer_bindings)
+            render_pass, 0, buffer_bindings.items, buffer_bindings.count
         );
 
         time_uniform.time = SDL_GetTicksNS() / 1e9;
@@ -183,7 +191,7 @@ int main(void) {
             cmd_buffer, 0, &time_uniform, sizeof(OG_UniformBuffer)
         );
 
-        SDL_DrawGPUPrimitives(render_pass, bn_arrayLen(vertices), 1, 0, 0);
+        SDL_DrawGPUPrimitives(render_pass, vertices.count, 1, 0, 0);
 
         SDL_EndGPURenderPass(render_pass);
 
