@@ -3,6 +3,11 @@
 #include <bn.h>
 #include <SDL3/SDL.h>
 
+bn_dArrayPrototype(SDL_GPUBufferBinding);
+bn_dArrayPrototype(SDL_GPUVertexBufferDescription);
+bn_dArrayPrototype(SDL_GPUVertexAttribute);
+bn_dArrayPrototype(SDL_GPUColorTargetDescription);
+
 typedef struct {
     SDL_Window* window;
     i32 window_width, window_height;
@@ -24,7 +29,7 @@ typedef struct {
     Vec4f32 color;
 } OG_Vertex;
 
-bn_slicePrototype(OG_Vertex);
+bn_dArrayPrototype(OG_Vertex);
 
 typedef struct {
     String file_path;
@@ -40,11 +45,9 @@ typedef struct {
     OG_GpuShaderInitParams vertex_shader, fragment_shader;
 } OG_PipelineInitParams;
 
-bn_slicePrototype(SDL_GPUVertexBufferDescription);
-bn_slicePrototype(SDL_GPUVertexAttribute);
-bn_slicePrototype(SDL_GPUColorTargetDescription);
-
 SDL_GPUGraphicsPipeline*
 og_initPipeline(OG_PipelineInitParams params, OG_Renderer* renderer);
 
-bn_slicePrototype(SDL_GPUBufferBinding);
+SDL_GPUBuffer* og_uploadBuffer(
+    SDL_GPUBufferCreateInfo buffer_info, void* items, OG_Renderer* renderer
+);

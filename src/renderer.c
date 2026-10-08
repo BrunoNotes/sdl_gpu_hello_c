@@ -68,74 +68,88 @@ og_initPipeline(OG_PipelineInitParams params, OG_Renderer* renderer) {
     pipeline_info.vertex_shader = vertex_shader;
     pipeline_info.fragment_shader = fragment_shader;
     pipeline_info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
-
-    BN_sliceSDL_GPUVertexBufferDescription vertex_buffer_descriptions = {0};
-    bn_sliceAppendArray(
-        vertex_buffer_descriptions,
-        ((SDL_GPUVertexBufferDescription[]){
-            {
-                .slot = 0,
-                .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
-                .instance_step_rate = 0,
-                .pitch = sizeof(OG_Vertex),
-            },
-        })
-    );
+    SDL_GPUVertexBufferDescription vertex_buffer_descriptions_array[] = {
+        {
+            .slot = 0,
+            .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
+            .instance_step_rate = 0,
+            .pitch = sizeof(OG_Vertex),
+        },
+    };
+    BN_arraySDL_GPUVertexBufferDescription vertex_buffer_descriptions =
+        bn_daInit();
+    for (u32 i = 0; i < bn_arrayLen(vertex_buffer_descriptions_array); i++) {
+        bn_daAppend(
+            &vertex_buffer_descriptions, vertex_buffer_descriptions_array[i],
+            &bn_context->allocator
+        );
+    }
+    bn_logDebugf("%p", renderer->window);
 
     pipeline_info.vertex_input_state.num_vertex_buffers =
-        vertex_buffer_descriptions.count;
+        vertex_buffer_descriptions.length;
     pipeline_info.vertex_input_state.vertex_buffer_descriptions =
         vertex_buffer_descriptions.items;
 
-    BN_sliceSDL_GPUVertexAttribute vertex_attributes = {0};
-    bn_sliceAppendArray(
-        vertex_attributes, ((SDL_GPUVertexAttribute[]){
-                               // position
-                               {.buffer_slot = 0,
-                                .location = 0,
-                                .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
-                                .offset = 0},
-                               // color
-                               {
-                                   .buffer_slot = 0,
-                                   .location = 1,
-                                   .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4,
-                                   .offset = sizeof(f32) * 3,
-                               },
-                           })
-    );
+    SDL_GPUVertexAttribute vertex_attributes_array[] =
+        (SDL_GPUVertexAttribute[]){
+            // position
+            {.buffer_slot = 0,
+             .location = 0,
+             .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+             .offset = 0},
+            // color
+            {
+                .buffer_slot = 0,
+                .location = 1,
+                .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4,
+                .offset = sizeof(f32) * 3,
+            },
+        };
+
+    BN_arraySDL_GPUVertexAttribute vertex_attributes = bn_daInit();
+    for (u32 i = 0; i < bn_arrayLen(vertex_attributes_array); i++) {
+        bn_daAppend(
+            &vertex_attributes, vertex_attributes_array[i],
+            &bn_context->allocator
+        );
+    }
 
     pipeline_info.vertex_input_state.num_vertex_attributes =
-        vertex_attributes.count;
+        vertex_attributes.length;
     pipeline_info.vertex_input_state.vertex_attributes =
         vertex_attributes.items;
 
-    BN_sliceSDL_GPUColorTargetDescription color_target_descriptions = {0};
-    bn_sliceAppendArray(
-        color_target_descriptions,
-        ((SDL_GPUColorTargetDescription[]){
-            {
-                .blend_state =
-                    {
-                        .enable_blend = true,
-                        .color_blend_op = SDL_GPU_BLENDOP_ADD,
-                        .alpha_blend_op = SDL_GPU_BLENDOP_ADD,
-                        .src_color_blendfactor = SDL_GPU_BLENDFACTOR_SRC_ALPHA,
-                        .dst_color_blendfactor =
-                            SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
-                        .src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_SRC_ALPHA,
-                        .dst_alpha_blendfactor =
-                            SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
-                    },
-                .format = SDL_GetGPUSwapchainTextureFormat(
-                    renderer->device, renderer->window
-                ),
-            },
-        })
+    bn_logDebugf("%p", renderer->window);
+    SDL_GPUColorTargetDescription color_target_descriptions_array[] = {
+        {
+            .blend_state =
+                {
+                    .enable_blend = true,
+                    .color_blend_op = SDL_GPU_BLENDOP_ADD,
+                    .alpha_blend_op = SDL_GPU_BLENDOP_ADD,
+                    .src_color_blendfactor = SDL_GPU_BLENDFACTOR_SRC_ALPHA,
+                    .dst_color_blendfactor =
+                        SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+                    .src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_SRC_ALPHA,
+                    .dst_alpha_blendfactor =
+                        SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+                },
+            .format = SDL_GetGPUSwapchainTextureFormat(
+                renderer->device, renderer->window
+            ),
+        },
+    };
+
+    BN_arraySDL_GPUColorTargetDescription color_target_descriptions =
+        bn_daInit();
+    bn_daAppendMany(
+        &color_target_descriptions, color_target_descriptions_array,
+        bn_arrayLen(color_target_descriptions_array), &bn_context->allocator
     );
 
     pipeline_info.target_info.num_color_targets =
-        color_target_descriptions.count;
+        color_target_descriptions.length;
     pipeline_info.target_info.color_target_descriptions =
         color_target_descriptions.items;
 
@@ -146,4 +160,48 @@ og_initPipeline(OG_PipelineInitParams params, OG_Renderer* renderer) {
     SDL_ReleaseGPUShader(renderer->device, fragment_shader);
 
     return graphics_pipeline;
+}
+
+SDL_GPUBuffer* og_uploadBuffer(
+    SDL_GPUBufferCreateInfo buffer_info, void* items, OG_Renderer* renderer
+) {
+    SDL_GPUBuffer* buffer = SDL_CreateGPUBuffer(renderer->device, &buffer_info);
+
+    SDL_GPUTransferBufferCreateInfo transfer_info = {0};
+    transfer_info.size = buffer_info.size;
+    transfer_info.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+
+    SDL_GPUTransferBuffer* transfer_buffer =
+        SDL_CreateGPUTransferBuffer(renderer->device, &transfer_info);
+
+    OG_Vertex* data = (OG_Vertex*)SDL_MapGPUTransferBuffer(
+        renderer->device, transfer_buffer, false
+    );
+
+    SDL_memcpy(data, items, buffer_info.size);
+
+    SDL_UnmapGPUTransferBuffer(renderer->device, transfer_buffer);
+
+    SDL_GPUCommandBuffer* cmd_buffer =
+        SDL_AcquireGPUCommandBuffer(renderer->device);
+    SDL_GPUCopyPass* copy_pass = SDL_BeginGPUCopyPass(cmd_buffer);
+
+    SDL_GPUTransferBufferLocation location = {0};
+    location.transfer_buffer = transfer_buffer;
+    location.offset = 0;
+
+    SDL_GPUBufferRegion region = {0};
+    region.buffer = buffer;
+    region.size = buffer_info.size;
+    region.offset = 0;
+
+    SDL_UploadToGPUBuffer(copy_pass, &location, &region, true);
+
+    SDL_EndGPUCopyPass(copy_pass);
+
+    bn_assert(SDL_SubmitGPUCommandBuffer(cmd_buffer));
+
+    SDL_ReleaseGPUTransferBuffer(renderer->device, transfer_buffer);
+
+    return buffer;
 }

@@ -5,8 +5,8 @@ OUTPUT := origami.bin
 
 CC := clang
 CFLAGS := -Wall -Wextra
-DEBUG_FLAGS := -DDEBUG -g
-# DEBUG_FLAGS := -DDEBUG -g -fsanitize=address
+# DEBUG_FLAGS := -DDEBUG -g
+DEBUG_FLAGS := -DDEBUG -g -fsanitize=address
 RELEASE_FLAGS := -DNDEBUG -O3
 
 IFLAGS := -I./vendor/include

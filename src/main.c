@@ -36,11 +36,11 @@ typedef struct {
 } OG_UniformBuffer;
 
 int main(void) {
-    bn_initContext((BN_ContextInitParams){0});
+    bn_initContext(BN_DEFAULT_CONTEXT_PARAMS);
 
     bn_logInfo("Hello from origami!");
 
-#ifdef DEBUG
+#if defined(DEBUG)
     SDL_SetLogPriorities(SDL_LOG_PRIORITY_VERBOSE);
 #else
     SDL_SetLogPriorities(SDL_LOG_PRIORITY_INFO);
@@ -73,56 +73,23 @@ int main(void) {
         renderer
     );
 
-    BN_sliceOG_Vertex vertices = {0};
-    bn_sliceAppendArray(
-        vertices,
-        ((OG_Vertex[]){
-            {.position = {{0.0f, 0.5f, 0.0}}, .color = {{1.0, 0.0, 0.0, 1.0}}},
-            {.position = {{-0.5f, -0.5f, 0.0}},
-             .color = {{1.0, 1.0, 0.0, 1.0}}},
-            {.position = {{0.5f, -0.5f, 0.0}}, .color = {{1.0, 0.0, 1.0, 1.0}}},
-        })
-    );
+    OG_Vertex vertices_array[] = {
+        {.position = {{0.0f, 0.5f, 0.0}}, .color = {{1.0, 0.0, 0.0, 1.0}}},
+        {.position = {{-0.5f, -0.5f, 0.0}}, .color = {{1.0, 1.0, 0.0, 1.0}}},
+        {.position = {{0.5f, -0.5f, 0.0}}, .color = {{1.0, 0.0, 1.0, 1.0}}},
+    };
+
+    BN_arrayOG_Vertex vertices = bn_daInit();
+    for (u32 i = 0; i < bn_arrayLen(vertices_array); i++) {
+        bn_daAppend(&vertices, vertices_array[i], &bn_context->allocator);
+    }
 
     SDL_GPUBufferCreateInfo buffer_info = {0};
-    buffer_info.size = sizeof(OG_Vertex) * vertices.count;
+    buffer_info.size = sizeof(OG_Vertex) * vertices.length;
     buffer_info.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
 
     SDL_GPUBuffer* vertex_buffer =
-        SDL_CreateGPUBuffer(renderer->device, &buffer_info);
-
-    SDL_GPUTransferBufferCreateInfo transfer_info = {0};
-    transfer_info.size = sizeof(OG_Vertex) * vertices.count;
-    transfer_info.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
-
-    SDL_GPUTransferBuffer* transfer_buffer =
-        SDL_CreateGPUTransferBuffer(renderer->device, &transfer_info);
-
-    OG_Vertex* data = (OG_Vertex*)SDL_MapGPUTransferBuffer(
-        renderer->device, transfer_buffer, false
-    );
-
-    SDL_memcpy(data, (void*)vertices.items, sizeof(OG_Vertex) * vertices.count);
-
-    SDL_UnmapGPUTransferBuffer(renderer->device, transfer_buffer);
-
-    SDL_GPUCommandBuffer* command_buffer =
-        SDL_AcquireGPUCommandBuffer(renderer->device);
-    SDL_GPUCopyPass* copy_pass = SDL_BeginGPUCopyPass(command_buffer);
-
-    SDL_GPUTransferBufferLocation location = {0};
-    location.transfer_buffer = transfer_buffer;
-    location.offset = 0;
-
-    SDL_GPUBufferRegion region = {0};
-    region.buffer = vertex_buffer;
-    region.size = sizeof(OG_Vertex) * vertices.count;
-    region.offset = 0;
-
-    SDL_UploadToGPUBuffer(copy_pass, &location, &region, true);
-
-    SDL_EndGPUCopyPass(copy_pass);
-    bn_assert(SDL_SubmitGPUCommandBuffer(command_buffer));
+        og_uploadBuffer(buffer_info, vertices.items, renderer);
 
     bn_allocatorFreeAll(&bn_context->temp_allocator);
 
@@ -173,16 +140,16 @@ int main(void) {
 
         SDL_BindGPUGraphicsPipeline(render_pass, pipeline);
 
-        BN_sliceSDL_GPUBufferBinding buffer_bindings = {0};
-        bn_sliceAppendArray(
-            buffer_bindings, ((SDL_GPUBufferBinding[]){{
-                                 .buffer = vertex_buffer,
-                                 .offset = 0,
-                             }})
-        );
+        BN_arraySDL_GPUBufferBinding buffer_bindings =
+            bn_daInit();
+        SDL_GPUBufferBinding vertex_binding = (SDL_GPUBufferBinding){
+            .buffer = vertex_buffer,
+            .offset = 0,
+        };
+        bn_daAppend(&buffer_bindings, vertex_binding, &bn_context->allocator);
 
         SDL_BindGPUVertexBuffers(
-            render_pass, 0, buffer_bindings.items, buffer_bindings.count
+            render_pass, 0, buffer_bindings.items, buffer_bindings.length
         );
 
         time_uniform.time = SDL_GetTicksNS() / 1e9;
@@ -191,7 +158,7 @@ int main(void) {
             cmd_buffer, 0, &time_uniform, sizeof(OG_UniformBuffer)
         );
 
-        SDL_DrawGPUPrimitives(render_pass, vertices.count, 1, 0, 0);
+        SDL_DrawGPUPrimitives(render_pass, vertices.length, 1, 0, 0);
 
         SDL_EndGPURenderPass(render_pass);
 
@@ -200,7 +167,6 @@ int main(void) {
         bn_allocatorFreeAll(&bn_context->temp_allocator);
     }
 
-    SDL_ReleaseGPUTransferBuffer(renderer->device, transfer_buffer);
     SDL_ReleaseGPUBuffer(renderer->device, vertex_buffer);
 
     SDL_ReleaseGPUGraphicsPipeline(renderer->device, pipeline);

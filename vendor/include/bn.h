@@ -12,7 +12,7 @@ References:
 #include "bn.h"
 
 // This library uses a global context called bn_context that must be initialized
-bn_initContext((BN_ContextInitParams){});
+bn_initContext(BN_DEFAULT_CONTEXT_PARAMS);
 
 // the bn_context contains a temp_allocator, that is basically a arena allocator
 // that must be freed by the user, at the end of a main loop for example
@@ -25,13 +25,27 @@ bn_destroyContext();
 
 #define BN_ASSERT_ENABLED // comment to disable asserts
 
-#if defined(_WIN32) || defined(_WIN64)
-#define BN_PLATFORM_WINDOWS
-#elif defined(__APPLE__) && defined(__MACH__)
-#define BN_PLATFORM_OSX
-#elif defined(__linux__)
-#define BN_PLATFORM_LINUX
+// clang-format off
+#if !defined(BN_ALLOCATOR_BACKEND_VIRTUAL_MEMORY) && !defined(BN_ALLOCATOR_BACKEND_MALLOC)
+    #define BN_ALLOCATOR_BACKEND_VIRTUAL_MEMORY
+    // #define BN_ALLOCATOR_BACKEND_MALLOC
 #endif
+
+#if defined(_WIN32) || defined(_WIN64)
+    #define BN_PLATFORM_WINDOWS
+#elif defined(__APPLE__) && defined(__MACH__)
+    #define BN_PLATFORM_OSX
+#elif defined(__linux__)
+    #define BN_PLATFORM_LINUX
+#endif
+
+#if defined(DEBUG)
+    #define BN_DEBUG true
+#else
+    #define BN_DEBUG false
+#endif
+
+// clang-format on
 
 #if defined(__cplusplus)
 extern "C" {
@@ -62,7 +76,7 @@ extern "C" {
         #define va_start(ap, param) __builtin_va_start(ap, param)
     #endif
     #define va_end(ap) __builtin_va_end(ap)
-    #define va_arg(ap, type) __builtin_va_arg(ap, type)
+    #define va_arg(ap, T) __builtin_va_arg(ap, T)
 #endif
 
 #if _MSC_VER
@@ -93,101 +107,52 @@ typedef double f64;
 typedef size_t usize;
 typedef ptrdiff_t isize;
 
-#define bn_vec2Prototype(type)                                                 \
-    typedef union U_Vec2##type {                                               \
-        type elements[2];                                                      \
+#define bn_vec2Prototype(T)                                                    \
+    typedef union U_Vec2##T {                                                  \
+        T elements[2];                                                         \
         struct {                                                               \
             union {                                                            \
-                type x, y;                                                     \
+                T x, y;                                                        \
             };                                                                 \
         };                                                                     \
-    } Vec2##type;
+    } Vec2##T;
 
 bn_vec2Prototype(f32);
 bn_vec2Prototype(f64);
 
-#define bn_vec3Prototype(type)                                                 \
-    typedef union U_Vec3##type {                                               \
-        type elements[3];                                                      \
+#define bn_vec3Prototype(T)                                                    \
+    typedef union U_Vec3##T {                                                  \
+        T elements[3];                                                         \
         struct {                                                               \
             union {                                                            \
-                type x, y, z;                                                  \
+                T x, y, z;                                                     \
             };                                                                 \
             union {                                                            \
-                type r, g, b;                                                  \
+                T r, g, b;                                                     \
             };                                                                 \
         };                                                                     \
-    } Vec3##type;
+    } Vec3##T;
 
 bn_vec3Prototype(f32);
 bn_vec3Prototype(f64);
 
-#define bn_vec4Prototype(type)                                                 \
-    typedef union U_Vec4##type {                                               \
-        type elements[4];                                                      \
+#define bn_vec4Prototype(T)                                                    \
+    typedef union U_Vec4##T {                                                  \
+        T elements[4];                                                         \
         struct {                                                               \
             union {                                                            \
-                type x, y, z, w;                                               \
+                T x, y, z, w;                                                  \
             };                                                                 \
             union {                                                            \
-                type r, g, b, a;                                               \
+                T r, g, b, a;                                                  \
             };                                                                 \
         };                                                                     \
-    } Vec4##type;
+    } Vec4##T;
 
 bn_vec4Prototype(f32);
 bn_vec4Prototype(f64);
 
 #define bn_arrayLen(a) (sizeof(a) / sizeof(a[0]))
-
-#define BN_SLICE_MAX_SIZE 256
-
-#define bn_slicePrototype(type)                                                \
-    typedef struct {                                                           \
-        type items[BN_SLICE_MAX_SIZE];                                         \
-        u32 count;                                                             \
-    } BN_slice##type
-
-bn_slicePrototype(i8);
-bn_slicePrototype(i16);
-bn_slicePrototype(i32);
-bn_slicePrototype(i64);
-bn_slicePrototype(u8);
-bn_slicePrototype(u16);
-bn_slicePrototype(u32);
-bn_slicePrototype(u64);
-bn_slicePrototype(b8);
-bn_slicePrototype(b32);
-bn_slicePrototype(b64);
-bn_slicePrototype(f32);
-bn_slicePrototype(f64);
-bn_slicePrototype(Vec2f32);
-bn_slicePrototype(Vec2f64);
-bn_slicePrototype(Vec3f32);
-bn_slicePrototype(Vec3f64);
-bn_slicePrototype(Vec4f32);
-bn_slicePrototype(Vec4f64);
-
-#define bn_sliceAppend(slice, item)                                            \
-    do {                                                                       \
-        bn_assert((slice).count < BN_SLICE_MAX_SIZE);                          \
-        (slice).items[(slice).count] = (item);                                 \
-        (slice).count++;                                                       \
-    } while (0)
-
-/*
-    BN_slicei32 slice = {0};
-    bn_sliceAppendArray(slice, (i32[]) {0,1,2,3});
-*/
-
-#define bn_sliceAppendArray(slice, item)                                       \
-    do {                                                                       \
-        (slice).count += bn_arrayLen(item);                                    \
-        bn_assert((slice).count <= BN_SLICE_MAX_SIZE);                         \
-        for (u32 i = 0; i < (slice).count; i++) {                              \
-            (slice).items[i] = (item)[i];                                      \
-        }                                                                      \
-    } while (0)
 
 typedef struct {
     char* ptr;
@@ -211,12 +176,23 @@ typedef struct {
 #define Mib(n) ((u64)(n) * MegaByte)
 #define Gib(n) ((u64)(n) * GigaByte)
 
+// clang-format off
+#if defined(BN_ALLOCATOR_BACKEND_MALLOC)
+    // for alignment
+    #ifndef BN_ALLOCATOR_MIN_SIZE
+        #define BN_ALLOCATOR_MIN_SIZE Kib(4)
+    #endif
+#endif
+// clang-format on
+
 #define bn_min(a, b) (((a) < (b)) ? (a) : (b))
 #define bn_max(a, b) (((a) > (b)) ? (a) : (b))
 #define bn_abs(x) ((x) < 0 ? -(x) : (x))
 #define bn_clamp(x, lower, upper) bn_min(bn_max((x), (lower)), (upper))
 
 #define bn_alignPow2(x, b) (((x) + (b) - 1) & (~((b) - 1)))
+
+#define bn_defer(begin, end) for(i8 _bn_defer_latch = (begin, 0); _bn_defer_latch < 1; _bn_defer_latch = 1, end)
 
 typedef enum {
     BN_LogLevel_Debug = 0,
@@ -226,9 +202,15 @@ typedef enum {
     BN_LogLevel_Panic = 4,
 } BN_LogLevel;
 
-void bn_defaultLogHandler(BN_LogLevel level, const char* fmt, va_list args);
+typedef struct {
+    BN_LogLevel level;
+    bool terminal_colors;
+    bool enable;
+} BN_LogOpts;
 
-typedef void(BN_LogHandler)(BN_LogLevel level, const char* fmt, va_list args);
+void bn_defaultLogHandler(BN_LogOpts opts, const char* fmt, va_list args);
+
+typedef void(BN_LogHandler)(BN_LogOpts opts, const char* fmt, va_list args);
 
 void bn_log(BN_LogLevel level, const char* fmt, ...);
 
@@ -274,6 +256,7 @@ void bn_log(BN_LogLevel level, const char* fmt, ...);
     #define bn_assert(expr)
     #define bn_assertMsg(expr, msg)
 #endif
+
 // clang-format on
 
 u32 bn_platformGetPageSize(void);
@@ -284,6 +267,18 @@ b32 bn_platformMemRelease(void* ptr, u64 size);
 
 #define BN_ARENA_BASE_POS (sizeof(BN_Arena))
 #define BN_ARENA_ALIGN (sizeof(void*))
+
+// clang-format off
+#if defined (BN_ALLOCATOR_BACKEND_VIRTUAL_MEMORY)
+    // use malloc for other platforms as fallback
+    #if !defined(BN_PLATFORM_LINUX) && !defined(BN_PLATFORM_WINDOWS)
+        #undef BN_ALLOCATOR_BACKEND_VIRTUAL_MEMORY
+        #if !defined(BN_ALLOCATOR_BACKEND_MALLOC)
+            #define BN_ALLOCATOR_BACKEND_MALLOC
+        #endif
+    #endif
+#endif
+// clang-format on
 
 typedef enum {
     BN_ArentaType_Static,
@@ -302,7 +297,7 @@ BN_Arena* bn_initArena(u64 reserve_size, u64 commit_size, BN_ArenaType type);
 void bn_destroyArena(BN_Arena* arena);
 
 void* bn_arenaPush(BN_Arena* arena, u64 size, bool non_zero);
-void bn_arenaRealloc(BN_Arena* arena, u64 new_pos);
+BN_Arena* bn_arenaRealloc(BN_Arena* arena, u64 new_pos);
 void bn_arenaPop(BN_Arena* arena, u64 size);
 void bn_arenaPopTo(BN_Arena* arena, u64 pos);
 
@@ -360,13 +355,12 @@ void bn_allocatorFreeAll(BN_Allocator* alloc);
 #define bnAllocPushArrayNZ(alloc, T, len)                                      \
     (T*)bn_allocatorPush((BN_AllocatorParams){sizeof(T) * (len), true}, (alloc))
 
-#define bn_dArrayPrototype(type)                                               \
+#define bn_dArrayPrototype(T)                                                  \
     typedef struct {                                                           \
-        type* items;                                                           \
-        u32 count;                                                             \
+        T* items;                                                              \
+        u32 length;                                                            \
         u32 capacity;                                                          \
-        BN_Allocator* allocator;                                               \
-    } BN_array##type
+    } BN_array##T
 
 bn_dArrayPrototype(i8);
 bn_dArrayPrototype(i16);
@@ -393,10 +387,9 @@ bn_dArrayPrototype(Vec4f64);
 #define BN_DYNAMIC_ARRAY_INITIAL_CAPACITY 256
 #endif
 
-#define bn_daInit(alloc)                                                       \
-    {.items = NULL, .count = 0, .capacity = 0, .allocator = alloc}
+#define bn_daInit() {.items = NULL, .length = 0, .capacity = 0}
 
-#define bn_daReserve(da, expected_capacity)                                    \
+#define bn_daReserve(da, expected_capacity, allocator)                         \
     do {                                                                       \
         if ((expected_capacity) > (da)->capacity) {                            \
             if ((da)->capacity == 0) {                                         \
@@ -405,7 +398,7 @@ bn_dArrayPrototype(Vec4f64);
                     (BN_AllocatorParams){                                      \
                         (da)->capacity * sizeof(*(da)->items), false           \
                     },                                                         \
-                    (da)->allocator                                            \
+                    (allocator)                                                \
                 );                                                             \
             } else {                                                           \
                 u32 old_capacity = (da)->capacity;                             \
@@ -416,46 +409,46 @@ bn_dArrayPrototype(Vec4f64);
                     (BN_AllocatorParams){                                      \
                         (da)->capacity * sizeof(*(da)->items), false           \
                     },                                                         \
-                    (da)->allocator                                            \
+                    (allocator)                                                \
                 );                                                             \
                 memcpy(                                                        \
                     new_entries, (da)->items,                                  \
                     old_capacity * sizeof(*(da)->items)                        \
                 );                                                             \
-                bn_allocatorFree((da)->allocator, (da)->items);                \
+                bn_allocatorFree((allocator), (da)->items);                    \
                 (da)->items = new_entries;                                     \
             }                                                                  \
             bn_assert((da)->items != NULL);                                    \
         }                                                                      \
     } while (0)
 
-#define bn_daAppend(da, item)                                                  \
+#define bn_daAppend(da, item, allocator)                                       \
     do {                                                                       \
-        bn_daReserve((da), (da)->count + 1);                                   \
-        (da)->items[(da)->count++] = (item);                                   \
+        bn_daReserve((da), (da)->length + 1, (allocator));                     \
+        (da)->items[(da)->length++] = (item);                                  \
     } while (0)
 
-#define bn_daAppendMany(da, new_items, new_items_count)                        \
+#define bn_daAppendMany(da, new_items, new_items_count, allocator)             \
     do {                                                                       \
-        bn_daReserve((da), (da)->count + (new_items_count));                   \
+        bn_daReserve((da), (da)->length + (new_items_count), (allocator));        \
         memcpy(                                                                \
-            (da)->items + (da)->count, (new_items),                            \
+            (da)->items + (da)->length, (new_items),                           \
             (new_items_count) * sizeof(*(da)->items)                           \
         );                                                                     \
-        (da)->count += (new_items_count);                                      \
+        (da)->length += (new_items_count);                                     \
     } while (0)
 
-#define bn_daFree(da)                                                          \
+#define bn_daFree(da, allocator)                                               \
     do {                                                                       \
-        bn_allocatorFree((da)->allocator, (da)->items);                        \
-        (da)->count = 0;                                                       \
+        bn_allocatorFree((allocator), (da)->items);                            \
+        (da)->length = 0;                                                      \
         (da)->capacity = 0;                                                    \
     } while (0)
 
-#define bn_daResize(da, new_size)                                              \
+#define bn_daResize(da, new_size, allocator)                                   \
     do {                                                                       \
-        bn_daReserve((da), new_size);                                          \
-        (da)->count = (new_size);                                              \
+        bn_daReserve((da), new_size, (allocator));                             \
+        (da)->length = (new_size);                                             \
     } while (0)
 
 #ifndef BN_HASH_TABLE_INITIAL_CAPACITY
@@ -469,22 +462,24 @@ typedef struct {
 
 typedef struct {
     BN_HashTableEntry* items;
-    u32 count;
+    u32 length;
     u32 capacity;
-    BN_Allocator* allocator;
 } BN_HashTable;
 
-#define bn_htInit(alloc)                                                       \
-    {.items = NULL, .count = 0, .capacity = 0, .allocator = alloc}
+#define bn_htInit() {.items = NULL, .length = 0, .capacity = 0}
 
-void bn_hashTableReserve(BN_HashTable* table, u64 expected_capacity);
-void bn_hashTableFree(BN_HashTable* table);
+void bn_hashTableReserve(
+    BN_HashTable* table, u64 expected_capacity, BN_Allocator* allocator
+);
+void bn_hashTableFree(BN_HashTable* table, BN_Allocator* allocator);
 u32 bn_hashTableLinearProbe(BN_HashTable* table, String key);
 void* bn_hashTableGet(BN_HashTable* table, String key);
-void bn_hashTableAppend(BN_HashTable* table, String key, void* value);
+void bn_hashTableAppend(
+    BN_HashTable* table, String key, void* value, BN_Allocator* allocator
+);
 
-#define bn_htAppend(ht, key, value)                                            \
-    bn_hashTableAppend(ht, stringLit(key), (void*)value)
+#define bn_htAppend(ht, key, value, allocator)                                 \
+    bn_hashTableAppend(ht, stringLit(key), (void*)value, (allocator))
 
 #define bn_htGet(ht, key) bn_hashTableGet(ht, stringLit(key))
 
@@ -492,15 +487,30 @@ typedef struct {
     BN_Allocator allocator;
     BN_Allocator temp_allocator;
     BN_LogHandler* log_handler;
-    BN_LogLevel log_level;
+    BN_LogOpts log_opts;
 } BN_Context;
 
 typedef struct {
     BN_AllocatorInitParams allocator_params;
+    BN_LogHandler* log_handler;
+    BN_LogOpts log_opts;
 } BN_ContextInitParams;
 
+#define BN_DEFAULT_CONTEXT_PARAMS                                              \
+    (BN_ContextInitParams) {                                                   \
+        .allocator_params =                                                    \
+            (BN_AllocatorInitParams){                                          \
+                .reserve_size = Byte * 8,                                      \
+                .commit_size = Byte * 8,                                       \
+                .type = BN_AllocatorType_ArenaGrowing,                         \
+            },                                                                 \
+        .log_opts = (BN_LogOpts) {                                             \
+            .level = BN_DEBUG ? BN_LogLevel_Debug : BN_LogLevel_Info,          \
+            .terminal_colors = BN_IS_TERMINAL, .enable = true,                 \
+        }                                                                      \
+    }
+
 // only used to initialize the context on the heap
-static thread_local BN_Allocator _bn_context_allocator = {0};
 static thread_local BN_Context* bn_context = {0};
 
 void bn_initContext(BN_ContextInitParams params);
@@ -515,43 +525,84 @@ void bn_destroyContext();
 #include <stdlib.h>
 #include <string.h>
 
+// clang-format off
 #if defined(BN_PLATFORM_WINDOWS)
-#include <windows.h>
+    #include <windows.h>
+    #include <io.h>
+
+    #define BN_IS_TERMINAL _isatty(_fileno(stdin))
 #else
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <unistd.h>
+    #include <sys/mman.h>
+    #include <sys/stat.h>
+    #include <unistd.h>
+
+    #define BN_IS_TERMINAL isatty(STDOUT_FILENO)
 #endif
+// clang-format on
 
-void bn_defaultLogHandler(BN_LogLevel level, const char* fmt, va_list args) {
-    if (level < bn_context->log_level) {
+#define BN_ANSI_ESC "\e"
+// #define BN_ANSI_ESC "\x1b"
+#define BN_ANSI_CSI BN_ANSI_ESC "["
+#define BN_ANSI_OSC BN_ANSI_ESC "]"
+#define BN_ANSI_SGR "m"
+
+#define BN_ANSI_RESET BN_ANSI_CSI "0" BN_ANSI_SGR
+#define BN_ANSI_DARK_GREY BN_ANSI_CSI "90" BN_ANSI_SGR
+#define BN_ANSI_YELLOW BN_ANSI_CSI "33" BN_ANSI_SGR
+#define BN_ANSI_RED BN_ANSI_CSI "33" BN_ANSI_SGR
+#define BN_ANSI_PURPLE BN_ANSI_CSI "35" BN_ANSI_SGR
+
+void bn_defaultLogHandler(BN_LogOpts opts, const char* fmt, va_list args) {
+    if (opts.level < bn_context->log_opts.level)
         return;
-    }
 
-    switch (level) {
+    if (!opts.enable)
+        return;
+
+    switch (opts.level) {
     case BN_LogLevel_Debug:
-        fprintf(stderr, "\x1b[90m[Debug]\x1b[0m ");
+        if (opts.terminal_colors)
+            fprintf(stderr, BN_ANSI_DARK_GREY);
+
+        fprintf(stderr, "[DEBUG]");
         break;
     case BN_LogLevel_Info:
-        fprintf(stderr, "\x1b[0m[Info]\x1b[0m ");
+        if (opts.terminal_colors)
+            fprintf(stderr, BN_ANSI_RESET);
+
+        fprintf(stderr, "[INFO ]");
         break;
     case BN_LogLevel_Warning:
-        fprintf(stderr, "\x1b[33m[Warn]\x1b[0m ");
+        if (opts.terminal_colors)
+            fprintf(stderr, BN_ANSI_YELLOW);
+
+        fprintf(stderr, "[WARN ]");
         break;
     case BN_LogLevel_Error:
-        fprintf(stderr, "\x1b[31m[Error]\x1b[0m ");
+        if (opts.terminal_colors)
+            fprintf(stderr, BN_ANSI_RED);
+
+        fprintf(stderr, "[ERROR]");
         break;
     case BN_LogLevel_Panic:
-        fprintf(stderr, "\x1b[35m[Panic]\x1b[0m ");
+        if (opts.terminal_colors)
+            fprintf(stderr, BN_ANSI_PURPLE);
+
+        fprintf(stderr, "[PANIC]");
         break;
     default:
         return;
     }
 
-    vfprintf(stderr, fmt, args);
-    fprintf(stderr, "\n");
+    if (opts.terminal_colors)
+        fprintf(stderr, BN_ANSI_RESET);
 
-    if (level == BN_LogLevel_Panic) {
+    fprintf(stderr, " ");
+
+    vfprintf(stderr, fmt, args);
+    fprintf(stderr, "\r\n");
+
+    if (opts.level == BN_LogLevel_Panic) {
         exit(1);
     }
 }
@@ -565,7 +616,14 @@ void bn_log(BN_LogLevel level, const char* fmt, ...) {
     va_list args;
     va_start(args, fmt);
 
-    bn_context->log_handler(level, fmt, args);
+    bn_context->log_handler(
+        (BN_LogOpts){
+            .level = level,
+            .terminal_colors = bn_context->log_opts.terminal_colors,
+            .enable = bn_context->log_opts.enable,
+        },
+        fmt, args
+    );
 
     va_end(args);
 }
@@ -675,6 +733,7 @@ BN_Arena* bn_initArena(u64 reserve_size, u64 commit_size, BN_ArenaType type) {
     bn_assert(reserve_size > 0);
     bn_assert(commit_size > 0);
 
+#if defined(BN_ALLOCATOR_BACKEND_VIRTUAL_MEMORY)
     u32 page_size = bn_platformGetPageSize();
 
     reserve_size = bn_alignPow2(reserve_size, page_size);
@@ -685,6 +744,11 @@ BN_Arena* bn_initArena(u64 reserve_size, u64 commit_size, BN_ArenaType type) {
     if (!bn_platformMemCommit(arena, commit_size)) {
         return NULL;
     }
+#elif defined(BN_ALLOCATOR_BACKEND_MALLOC)
+    reserve_size = bn_alignPow2(reserve_size, BN_ALLOCATOR_MIN_SIZE);
+    BN_Arena* arena = (BN_Arena*)malloc(reserve_size);
+    bn_assert(arena != NULL);
+#endif
 
     arena->reserve_size = reserve_size;
     arena->commit_size = commit_size;
@@ -696,8 +760,12 @@ BN_Arena* bn_initArena(u64 reserve_size, u64 commit_size, BN_ArenaType type) {
 }
 
 void bn_destroyArena(BN_Arena* arena) {
+#if defined(BN_ALLOCATOR_BACKEND_VIRTUAL_MEMORY)
     bool ok = bn_platformMemRelease(arena, arena->reserve_size);
     bn_assert(ok == true);
+#elif defined(BN_ALLOCATOR_BACKEND_MALLOC)
+    free(arena);
+#endif
 }
 
 void* bn_arenaPush(BN_Arena* arena, u64 size, bool non_zero) {
@@ -706,7 +774,7 @@ void* bn_arenaPush(BN_Arena* arena, u64 size, bool non_zero) {
 
     // Grow arena if needed
     if (new_pos > arena->reserve_size && arena->type == BN_ArenaType_Growing) {
-        bn_arenaRealloc(arena, new_pos);
+        arena = bn_arenaRealloc(arena, new_pos);
     }
 
     if (new_pos > arena->commit_pos) {
@@ -715,12 +783,14 @@ void* bn_arenaPush(BN_Arena* arena, u64 size, bool non_zero) {
         new_commit_pos -= new_commit_pos % arena->commit_size;
         new_commit_pos = bn_min(new_commit_pos, arena->reserve_size);
 
+#if defined(BN_ALLOCATOR_BACKEND_VIRTUAL_MEMORY)
         u8* mem = (u8*)arena + arena->commit_pos;
         u64 commit_size = new_commit_pos - arena->commit_pos;
 
         if (!bn_platformMemCommit(mem, commit_size)) {
             return NULL;
         }
+#endif
 
         arena->commit_pos = new_commit_pos;
     }
@@ -736,34 +806,62 @@ void* bn_arenaPush(BN_Arena* arena, u64 size, bool non_zero) {
     return out;
 }
 
-void bn_arenaRealloc(BN_Arena* arena, u64 new_pos) {
+BN_Arena* bn_arenaRealloc(BN_Arena* arena, u64 new_pos) {
     u64 new_reserve_size = arena->reserve_size * 2;
     while (new_reserve_size < new_pos) {
         new_reserve_size *= 2;
     }
+    u64 commit_size = arena->commit_size;
+    u64 pos = arena->pos;
+    u64 commit_pos = arena->commit_pos;
 
+#if defined(BN_ALLOCATOR_BACKEND_VIRTUAL_MEMORY)
     u32 page_size = bn_platformGetPageSize();
     new_reserve_size = bn_alignPow2(new_reserve_size, page_size);
 
     BN_Arena* new_arena = (BN_Arena*)bn_platformMemReserve(new_reserve_size);
     bn_assert(new_arena != NULL);
 
-    // Copy existing data and commit the current committed size
-    memcpy(new_arena, arena, arena->commit_pos);
+    u64 bytes_to_commit = commit_pos;
+    if (bytes_to_commit < sizeof(BN_Arena)) {
+        bytes_to_commit = sizeof(BN_Arena);
+    }
+    bytes_to_commit = bn_alignPow2(bytes_to_commit, page_size);
+
     if (!bn_platformMemCommit(new_arena, arena->commit_pos)) {
         bn_platformMemRelease(new_arena, new_reserve_size);
-        return;
+        return NULL;
     }
+    // Copy existing data and commit the current committed size
+    memcpy(new_arena, arena, arena->commit_pos);
+    // if (!bn_platformMemCommit(new_arena, arena->commit_pos)) {
+    //     bn_platformMemRelease(new_arena, new_reserve_size);
+    //     return NULL;
+    // }
+    new_arena->reserve_size = new_reserve_size;
+    new_arena->commit_size = commit_size;
+    new_arena->pos = pos;
+    new_arena->commit_pos = commit_pos;
+
+    bn_platformMemRelease(arena, arena->reserve_size);
+#elif defined(BN_ALLOCATOR_BACKEND_MALLOC)
+    new_reserve_size = bn_alignPow2(new_reserve_size, BN_ALLOCATOR_MIN_SIZE);
+    // BN_Arena* new_arena =
+    //     (BN_Arena*)malloc(new_reserve_size);
+    // bn_assert(new_arena != NULL);
+    //
+    // memcpy(new_arena, arena, arena->commit_pos);
+    //
+    // free(arena);
+    BN_Arena* new_arena = (BN_Arena*)realloc(arena, new_reserve_size);
 
     new_arena->reserve_size = new_reserve_size;
-    new_arena->commit_size = arena->commit_size;
-    new_arena->pos = arena->pos;
-    new_arena->commit_pos = arena->commit_pos;
+    new_arena->commit_size = commit_size;
+    new_arena->pos = pos;
+    new_arena->commit_pos = commit_pos;
+#endif
 
-    // Release old arena and update pointer
-    bn_platformMemRelease(arena, arena->reserve_size);
-
-    arena = new_arena;
+    return new_arena;
 }
 
 void bn_arenaPop(BN_Arena* arena, u64 size) {
@@ -787,6 +885,37 @@ void bn_endTempArena(BN_TempArena temp) {
     bn_arenaPopTo(temp.arena, temp.start_pos);
 }
 
+void* bn_heapAllocatorPush(u64 size, bool non_zero) {
+#if defined(BN_ALLOCATOR_BACKEND_VIRTUAL_MEMORY)
+    u32 page_size = bn_platformGetPageSize();
+    size = bn_alignPow2(size, page_size);
+    void* data = bn_platformMemReserve(size);
+
+    if (!bn_platformMemCommit(data, size)) {
+        return NULL;
+    }
+#elif defined(BN_ALLOCATOR_BACKEND_MALLOC)
+    size = bn_alignPow2(size, BN_ALLOCATOR_MIN_SIZE);
+    void* data = malloc(size);
+#endif
+
+    if (!non_zero) {
+        memset(data, 0, size);
+    }
+
+    return data;
+}
+
+void bn_heapAllocatorFree(void* data, u64 size) {
+#if defined(BN_ALLOCATOR_BACKEND_VIRTUAL_MEMORY)
+    bn_platformMemRelease(data, size);
+#elif defined(BN_ALLOCATOR_BACKEND_MALLOC)
+    (void)size;
+    free(data);
+    data = NULL;
+#endif
+}
+
 BN_Allocator bn_initAllocator(BN_AllocatorInitParams params) {
     BN_Allocator alloc = {0};
 
@@ -804,10 +933,10 @@ BN_Allocator bn_initAllocator(BN_AllocatorInitParams params) {
         break;
     case BN_AllocatorType_ArenaGrowing:
         if (params.reserve_size <= 0) {
-            params.reserve_size = Mib(32);
+            params.reserve_size = Byte * 8;
         }
         if (params.commit_size <= 0) {
-            params.commit_size = Mib(1);
+            params.commit_size = Byte * 8;
         }
 
         bn_logDebugf(
@@ -868,38 +997,25 @@ void bn_destroyAllocator(BN_Allocator* alloc) {
     }
 }
 
-void* bn_heapAllocatorPush(u64 size, bool non_zero) {
-    // void* data = malloc(size);
-    u32 page_size = bn_platformGetPageSize();
-    size = bn_alignPow2(size, page_size);
-    void* data = bn_platformMemReserve(size);
-
-    if (!bn_platformMemCommit(data, size)) {
-        return NULL;
-    }
-
-    if (!non_zero) {
-        memset(data, 0, size);
-    }
-
-    return data;
-}
-
-void bn_heapAllocatorFree(void* data, u64 size) {
-    // free(data);
-    // data = NULL;
-    bn_platformMemRelease(data, size);
-}
-
 void* bn_allocatorPush(BN_AllocatorParams params, BN_Allocator* alloc) {
+    alloc->size = params.size;
+
     switch (alloc->type) {
     case BN_AllocatorType_ArenaStatic:
-    case BN_AllocatorType_ArenaGrowing:
+    case BN_AllocatorType_ArenaGrowing: {
+        // checks reallocation outside the arena push to update the pointer
+        BN_Arena* arena = alloc->data;
+        u64 pos_aligned = bn_alignPow2(arena->pos, BN_ARENA_ALIGN);
+        u64 new_pos = pos_aligned + params.size;
+        if (new_pos > arena->reserve_size) {
+            arena = bn_arenaRealloc(arena, new_pos);
+        }
+        alloc->data = arena;
         return bn_arenaPush(
             (BN_Arena*)alloc->data, params.size, params.non_zero
         );
+    }
     case BN_AllocatorType_HeapAllocator:
-        alloc->size = params.size;
         return bn_heapAllocatorPush(params.size, params.non_zero);
     case BN_AllocatorType_TempAllocator:
         return bn_arenaPush(
@@ -919,6 +1035,7 @@ void bn_allocatorFree(BN_Allocator* alloc, void* data) {
         break;
     case BN_AllocatorType_HeapAllocator:
         bn_heapAllocatorFree(data, alloc->size);
+        alloc->size = 0;
         break;
     default:
         bn_logPanic("Allocator not initialized");
@@ -942,6 +1059,7 @@ void bn_allocatorFreeAll(BN_Allocator* alloc) {
         bn_logPanic("Allocator not initialized");
         break;
     }
+    alloc->size = 0;
 }
 
 static inline u32 bn_fvn32aHash(u8* data, u32 length) {
@@ -954,7 +1072,9 @@ static inline u32 bn_fvn32aHash(u8* data, u32 length) {
     return h;
 }
 
-void bn_hashTableReserve(BN_HashTable* table, u64 expected_capacity) {
+void bn_hashTableReserve(
+    BN_HashTable* table, u64 expected_capacity, BN_Allocator* allocator
+) {
     if (expected_capacity > table->capacity) {
         if (table->capacity == 0) {
             table->capacity = BN_HASH_TABLE_INITIAL_CAPACITY;
@@ -962,7 +1082,7 @@ void bn_hashTableReserve(BN_HashTable* table, u64 expected_capacity) {
                 (BN_AllocatorParams){
                     table->capacity * sizeof(*table->items), false
                 },
-                table->allocator
+                allocator
             );
         } else {
             while (expected_capacity > table->capacity) {
@@ -973,7 +1093,7 @@ void bn_hashTableReserve(BN_HashTable* table, u64 expected_capacity) {
                     (BN_AllocatorParams){
                         table->capacity * sizeof(*table->items), false
                     },
-                    table->allocator
+                    allocator
                 );
 
             for (u32 i = 0; i < table->capacity; i++) {
@@ -982,16 +1102,16 @@ void bn_hashTableReserve(BN_HashTable* table, u64 expected_capacity) {
                 }
             }
 
-            bn_allocatorFree(table->allocator, table->items);
+            bn_allocatorFree(allocator, table->items);
             table->items = new_entries;
         }
         bn_assert(table->items != NULL);
     }
 }
 
-void bn_hashTableFree(BN_HashTable* table) {
-    bn_allocatorFree(table->allocator, table->items);
-    table->count = 0;
+void bn_hashTableFree(BN_HashTable* table, BN_Allocator* allocator) {
+    bn_allocatorFree(allocator, table->items);
+    table->length = 0;
     table->capacity = 0;
 }
 
@@ -1020,10 +1140,12 @@ void* bn_hashTableGet(BN_HashTable* table, String key) {
     return table->items[idx].value;
 }
 
-void bn_hashTableAppend(BN_HashTable* table, String key, void* value) {
+void bn_hashTableAppend(
+    BN_HashTable* table, String key, void* value, BN_Allocator* allocator
+) {
     bn_assert(value != NULL);
 
-    bn_hashTableReserve(table, table->count + 1);
+    bn_hashTableReserve(table, table->length + 1, allocator);
 
     u32 idx = bn_hashTableLinearProbe(table, key);
 
@@ -1031,44 +1153,38 @@ void bn_hashTableAppend(BN_HashTable* table, String key, void* value) {
         table->items[idx].key = key;
     }
     table->items[idx].value = value;
-    table->count++;
+    table->length++;
 }
 
+// static thread_local BN_Allocator _bn_context_allocator = {0};
+
 void bn_initContext(BN_ContextInitParams params) {
-    _bn_context_allocator = bn_initAllocator((BN_AllocatorInitParams){
-        .reserve_size = Byte * 2,
-        .commit_size = Byte * 2,
-        .type = BN_AllocatorType_ArenaStatic,
-    });
+    // _bn_context_allocator = bn_initAllocator((BN_AllocatorInitParams){
+    //     .reserve_size = Byte * 8,
+    //     .commit_size = Byte * 8,
+    //     .type = BN_AllocatorType_ArenaGrowing,
+    // });
+    // bn_context = bn_allocPushStruct(&_bn_context_allocator, BN_Context);
+    bn_context = malloc(sizeof(BN_Context));
 
-    bn_context = bn_allocPushStruct(&_bn_context_allocator, BN_Context);
+    bn_context->log_opts = params.log_opts;
 
-#if defined(DEBUG)
-    bn_context->log_level = BN_LogLevel_Debug;
-#else
-    bn_context->log_level = BN_LogLevel_Info;
-#endif
-
-    if (bn_context->log_handler == NULL) {
+    if (params.log_handler == NULL) {
         bn_context->log_handler = &bn_defaultLogHandler;
         bn_logDebugf("BN: default log handler loaded");
     }
 
-    if (
-        params.allocator_params.reserve_size == 0 &&
-        params.allocator_params.commit_size == 0 &&
-        params.allocator_params.type == 0 //
-    ) {
-        params.allocator_params.reserve_size = Mib(4);
-        params.allocator_params.commit_size = Kib(2);
-        params.allocator_params.type = BN_AllocatorType_ArenaGrowing;
-    }
+#if defined(BN_ALLOCATOR_BACKEND_VIRTUAL_MEMORY)
+    bn_logDebugf("BN: allocator backend: virtual memory");
+#elif defined(BN_ALLOCATOR_BACKEND_MALLOC)
+    bn_logDebugf("BN: allocator backend: malloc");
+#endif
 
     bn_context->allocator = bn_initAllocator(params.allocator_params);
 
     bn_context->temp_allocator = bn_initAllocator((BN_AllocatorInitParams){
-        .reserve_size = Mib(4),
-        .commit_size = Kib(2),
+        .reserve_size = Byte * 8,
+        .commit_size = Byte * 8,
         .type = BN_AllocatorType_TempAllocator,
     });
 }
@@ -1079,7 +1195,8 @@ void bn_destroyContext() {
 
     bn_logDebugf("BN: destroying context");
 
-    bn_destroyAllocator(&_bn_context_allocator);
+    // bn_destroyAllocator(&_bn_context_allocator);
+    free(bn_context);
 }
 
 #endif
